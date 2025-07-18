@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from lightrag.utils import logger
 from ..utils_api import get_combined_auth_dependency
+from .auth_selector import get_smart_combined_auth
 
 router = APIRouter(tags=["graph"])
 
@@ -27,7 +28,8 @@ class RelationUpdateRequest(BaseModel):
 
 def create_graph_routes(rag, api_key: Optional[str] = None):
     # combined_auth = get_combined_auth_dependency(api_key)
-    from .firebase_auth import combined_auth
+    combined_auth = get_smart_combined_auth(api_key)
+
 
     @router.get("/graph/label/list", dependencies=[Depends(combined_auth)])
     async def get_graph_labels():

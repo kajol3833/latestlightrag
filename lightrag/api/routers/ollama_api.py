@@ -13,6 +13,7 @@ from lightrag import LightRAG, QueryParam
 from lightrag.utils import TiktokenTokenizer
 from lightrag.api.utils_api import ollama_server_infos, get_combined_auth_dependency
 from fastapi import Depends
+from .auth_selector import get_smart_combined_auth
 
 
 # query mode according to query prefix (bypass is not LightRAG quer mode)
@@ -230,7 +231,7 @@ class OllamaAPI:
     def setup_routes(self):
         # Create combined auth dependency for Ollama API routes
         # combined_auth = get_combined_auth_dependency(self.api_key)
-        from .firebase_auth import combined_auth
+        combined_auth = get_smart_combined_auth(self.api_key)
 
         @self.router.get("/version", dependencies=[Depends(combined_auth)])
         async def get_version():

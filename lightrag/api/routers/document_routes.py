@@ -26,6 +26,7 @@ from lightrag import LightRAG
 from lightrag.base import DeletionResult, DocProcessingStatus, DocStatus
 from lightrag.api.utils_api import get_combined_auth_dependency
 from ..config import global_args
+from .auth_selector import get_smart_combined_auth
 
 
 # Function to format datetime to ISO format string with timezone information
@@ -984,7 +985,7 @@ def create_document_routes(
 ):
     # Create combined auth dependency for document routes
     # combined_auth = get_combined_auth_dependency(api_key)
-    from .firebase_auth import combined_auth
+    combined_auth = get_smart_combined_auth(api_key)
 
     @router.post(
         "/scan", response_model=ScanResponse, dependencies=[Depends(combined_auth)]

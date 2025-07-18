@@ -1,18 +1,17 @@
 """
-This module contains all query-related routes for the LightRAG API.
+This module contains all unauthenticated query-related routes for the LightRAG API.
 """
 
 import json
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from lightrag.base import QueryParam
-from ..utils_api import get_combined_auth_dependency
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from fastapi.responses import StreamingResponse
 
 from ascii_colors import trace_exception
-from .auth_selector import get_smart_combined_auth
+from lightrag.base import QueryParam
 
 router = APIRouter(tags=["query"])
 
@@ -108,94 +107,48 @@ class QueryRequest(BaseModel):
         return conversation_history
 
     def to_query_params(self, is_stream: bool) -> "QueryParam":
-        """Converts a QueryRequest instance into a QueryParam instance."""
-        # Use Pydantic's `.model_dump(exclude_none=True)` to remove None values automatically
         request_data = self.model_dump(exclude_none=True, exclude={"query"})
-
-        # Ensure `mode` and `stream` are set explicitly
         param = QueryParam(**request_data)
         param.stream = is_stream
         return param
 
 
 class QueryResponse(BaseModel):
-    response: str = Field(
-        description="The generated response",
-    )
+    response: str = Field(description="The generated response")
 
 
-def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
-    # combined_auth = get_combined_auth_dependency(api_key)
-    combined_auth = get_smart_combined_auth(api_key)
-    # @router.post(
-    #     "/query", response_model=QueryResponse, dependencies=[Depends(combined_auth)]
-    # )
-    @router.post(
-    "/query", response_model=QueryResponse, dependencies=[Depends(combined_auth)]
-)
-
+def create_query_routes_no_auth(rag):
+    @router.post("/query", response_model=QueryResponse)
     async def query_text(request: QueryRequest):
-        """
-        Handle a POST request at the /query endpoint to process user queries using RAG capabilities.
-
-        Parameters:
-            request (QueryRequest): The request object containing the query parameters.
-        Returns:
-            QueryResponse: A Pydantic model containing the result of the query processing.
-                       If a string is returned (e.g., cache hit), it's directly returned.
-                       Otherwise, an async generator may be used to build the response.
-
-        Raises:
-            HTTPException: Raised when an error occurs during the request handling process,
-                       with status code 500 and detail containing the exception message.
-        """
         try:
             param = request.to_query_params(False)
             response = await rag.aquery(request.query, param=param)
 
-            # If response is a string (e.g. cache hit), return directly
             if isinstance(response, str):
                 return QueryResponse(response=response)
-
-            if isinstance(response, dict):
-                result = json.dumps(response, indent=2)
-                return QueryResponse(response=result)
+            elif isinstance(response, dict):
+                return QueryResponse(response=json.dumps(response, indent=2))
             else:
                 return QueryResponse(response=str(response))
         except Exception as e:
             trace_exception(e)
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/query/stream", dependencies=[Depends(combined_auth)])
+    @router.post("/query/stream")
     async def query_text_stream(request: QueryRequest):
-        """
-        This endpoint performs a retrieval-augmented generation (RAG) query and streams the response.
-
-        Args:
-            request (QueryRequest): The request object containing the query parameters.
-            optional_api_key (Optional[str], optional): An optional API key for authentication. Defaults to None.
-
-        Returns:
-            StreamingResponse: A streaming response containing the RAG query results.
-        """
         try:
             param = request.to_query_params(True)
             response = await rag.aquery(request.query, param=param)
 
-            from fastapi.responses import StreamingResponse
-
             async def stream_generator():
                 if isinstance(response, str):
-                    # If it's a string, send it all at once
                     yield f"{json.dumps({'response': response})}\n"
                 elif response is None:
-                    # Handle None response (e.g., when only_need_context=True but no context found)
                     yield f"{json.dumps({'response': 'No relevant context found for the query.'})}\n"
                 else:
-                    # If it's an async generator, send chunks one by one
                     try:
                         async for chunk in response:
-                            if chunk:  # Only send non-empty content
+                            if chunk:
                                 yield f"{json.dumps({'response': chunk})}\n"
                     except Exception as e:
                         logging.error(f"Streaming error: {str(e)}")
@@ -208,7 +161,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                     "Content-Type": "application/x-ndjson",
-                    "X-Accel-Buffering": "no",  # Ensure proper handling of streaming response when proxied by Nginx
+                    "X-Accel-Buffering": "no",
                 },
             )
         except Exception as e:
